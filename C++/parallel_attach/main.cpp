@@ -17,6 +17,9 @@ static constexpr size_t THREAD_COUNT = 8;
 
 const string DB_DIR = "my_path";
 
+FILE * file_pointers[FILE_COUNT];
+static constexpr bool KEEP_OPEN = false;
+
 // functions
 
 static void CheckError(const bool has_error, const string &msg) {
@@ -40,24 +43,26 @@ static void FileWorker(const size_t start, const size_t end) {
         CheckError(!S_ISREG(status.st_mode), "not a regular file");
 
         // open the file
-        FILE *fp = fopen(file_path.c_str(), "rb");
-        CheckError(!fp, "error opening file");
+        file_pointers[file_id] = fopen(file_path.c_str(), "rb");
+        CheckError(!file_pointers[file_id], "error opening file");
 
         // read the file
         char b[READ_COUNT * READ_SIZE];
         size_t read_bytes = 0;
 
         for (size_t i = 0; i < READ_COUNT; i++) {
-            read_bytes += fread(b, sizeof(char), READ_SIZE, fp);
+            read_bytes += fread(b, sizeof(char), READ_SIZE, file_pointers[file_id]);
         }
 
         if (read_bytes != READ_SIZE * READ_COUNT) {
-            CheckError(feof(fp), "unexpected end of file");
-            CheckError(ferror(fp), "error reading file");
+            CheckError(feof(file_pointers[file_id]), "unexpected end of file");
+            CheckError(ferror(file_pointers[file_id]), "error reading file");
         }
 
         // close file
-        CheckError(fclose(fp), "error closing file");
+        if (!KEEP_OPEN) {
+            CheckError(fclose(file_pointers[file_id]), "error closing file");
+        }
     }
 }
 
@@ -88,6 +93,12 @@ void ReadFiles() {
 
     for (size_t i = 0; i < THREAD_COUNT; i++) {
         threads[i].join();
+    }
+
+    if (KEEP_OPEN) {
+        for (auto &file_pointer : file_pointers) {
+            CheckError(fclose(file_pointer), "error closing file");
+        }
     }
 }
 
