@@ -1,26 +1,45 @@
 #include <iostream>
 #include <string>
-#include <cstdio>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <thread>
 #include <chrono>
+#include <fcntl.h>
 
 using namespace std;
 
-// constants
+static constexpr size_t READ_COUNT = 6;
+static constexpr size_t READ_SIZE = 10000;
+static constexpr size_t FILE_COUNT = 50000;
+static constexpr size_t RUNS = 5;
 
-static constexpr size_t READ_COUNT = 4;
-static constexpr size_t READ_SIZE = 4096;
-static constexpr size_t FILE_COUNT = 30000;
-static constexpr size_t THREAD_COUNT = 8;
+const string DB_DIR = "my_path/" + to_string(FILE_COUNT);
 
-const string DB_DIR = "my_path";
+int file_descriptors[FILE_COUNT];
+bool KEEP_OPEN = false;
+bool LOCK_FILES = true;
+size_t THREAD_COUNT = 0;
 
-FILE * file_pointers[FILE_COUNT];
-static constexpr bool KEEP_OPEN = false;
+struct File {
+    explicit File(const size_t file_id) {
 
-// functions
+        auto folder = file_id % 1000;
+        auto file_id_str = to_string(file_id);
+
+        auto max_padding = to_string(FILE_COUNT).length();
+        auto padding = max_padding - file_id_str.length();
+
+        for (size_t i = 0; i < padding; i++) {
+            file_id_str = "0" + file_id_str;
+        }
+
+        filename = "board__10000__" + file_id_str;
+        filepath = DB_DIR + "/" + to_string(folder) + "/" + filename + ".db";
+    }
+
+    string filename;
+    string filepath;
+};
 
 static void CheckError(const bool has_error, const string &msg) {
     if (has_error) {
@@ -33,35 +52,39 @@ static void FileWorker(const size_t start, const size_t end) {
 
     for (size_t file_id = start; file_id < end; file_id++) {
 
-        // get the file path
-        auto file_path = DB_DIR + "/board_" + to_string(file_id) + ".db";
-        CheckError(access(file_path.c_str(), 0), "failed to access file: " + file_path);
+        // get file path
+        File file(file_id);
+        CheckError(access(file.filepath.c_str(), 0), "failed to access file: " + file.filepath);
 
         // test if the file is a regular file
         struct stat status{};
-        stat(file_path.c_str(), &status);
+        stat(file.filepath.c_str(), &status);
         CheckError(!S_ISREG(status.st_mode), "not a regular file");
 
-        // open the file
-        file_pointers[file_id] = fopen(file_path.c_str(), "rb");
-        CheckError(!file_pointers[file_id], "error opening file");
+        // open file
+        file_descriptors[file_id] = open(file.filepath.c_str(), O_RDWR, 0666);
+        CheckError(file_descriptors[file_id] == -1, "error opening file: " + string(strerror(errno)));
 
-        // read the file
+        // lock file
+        if (LOCK_FILES) {
+            int rc = flock(file_descriptors[file_id], LOCK_SH);
+            CheckError(rc == -1, "could not set lock on file: " + string(strerror(errno)));
+        }
+
+        // read file
         char b[READ_COUNT * READ_SIZE];
         size_t read_bytes = 0;
 
         for (size_t i = 0; i < READ_COUNT; i++) {
-            read_bytes += fread(b, sizeof(char), READ_SIZE, file_pointers[file_id]);
+            auto bytes = pread(file_descriptors[file_id], b, READ_SIZE, i * READ_SIZE);
+            CheckError(bytes == -1, "could not read from file: " + string(strerror(errno)));
+            read_bytes += bytes;
         }
-
-        if (read_bytes != READ_SIZE * READ_COUNT) {
-            CheckError(feof(file_pointers[file_id]), "unexpected end of file");
-            CheckError(ferror(file_pointers[file_id]), "error reading file");
-        }
+        CheckError(read_bytes != READ_SIZE * READ_COUNT, "could not read all bytes: " + to_string(read_bytes));
 
         // close file
         if (!KEEP_OPEN) {
-            CheckError(fclose(file_pointers[file_id]), "error closing file");
+            CheckError(close(file_descriptors[file_id]) == -1, "error closing file");
         }
     }
 }
@@ -96,27 +119,48 @@ void ReadFiles() {
     }
 
     if (KEEP_OPEN) {
-        for (auto &file_pointer : file_pointers) {
-            CheckError(fclose(file_pointer), "error closing file");
+        for (auto &file_descriptor : file_descriptors) {
+            CheckError(close(file_descriptor) == -1, "error closing file");
         }
     }
+}
+
+size_t GetMedian(vector<size_t> &timings) {
+    sort(timings.begin(), timings.end());
+    return timings[timings.size() / 2];
 }
 
 // main
 
 int main() {
+
     cout << "start reading files \n";
-    auto t1 = chrono::high_resolution_clock::now();
+    cout << "runs: " << RUNS << "\n";
+    cout << "keep open: " << KEEP_OPEN << "\n";
+    cout << "lock files: " << LOCK_FILES << "\n\n";
 
-    ReadFiles();
+    vector<size_t> thread_counts = {1, 2, 4, 8};
+    for (const auto &thread_count : thread_counts) {
 
-    auto t2 = chrono::high_resolution_clock::now();
-    cout << "finish reading files \n";
+        THREAD_COUNT = thread_count;
 
-    auto ms_int = chrono::duration_cast<chrono::milliseconds>(t2 - t1);
-    auto s_int = chrono::duration_cast<chrono::seconds>(t2 - t1);
-    cout << "elapsed time in [ms]: " << ms_int.count() << "\n";
-    cout << "elapsed time in [s]: " << s_int.count() << "\n";
+        // cold run
+        ReadFiles();
 
+        vector<size_t> timings;
+        for (size_t i = 0; i < RUNS; i++) {
+
+            auto t1 = chrono::high_resolution_clock::now();
+            ReadFiles();
+            auto t2 = chrono::high_resolution_clock::now();
+
+            auto ms_int = chrono::duration_cast<chrono::milliseconds>(t2 - t1);
+            timings.push_back(ms_int.count());
+        }
+
+        cout << "threads: " << thread_count << " [ms]: " << GetMedian(timings) << "\n";
+    }
+
+    cout << "\n" << "finish reading files \n";
     return 0;
 }
