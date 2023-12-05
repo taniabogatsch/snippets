@@ -1,0 +1,16 @@
+0,1,1,901,close_and_lock
+0,1,2,502,close_and_lock
+0,1,4,283,close_and_lock
+0,1,8,257,close_and_lock
+0,0,1,876,close_and_no_lock
+0,0,2,478,close_and_no_lock
+0,0,4,270,close_and_no_lock
+0,0,8,237,close_and_no_lock
+1,1,1,923,keep_open_and_lock
+1,1,2,518,keep_open_and_lock
+1,1,4,307,keep_open_and_lock
+1,1,8,281,keep_open_and_lock
+1,0,1,888,keep_open_no_lock
+1,0,2,490,keep_open_no_lock
+1,0,4,289,keep_open_no_lock
+1,0,8,254,keep_open_no_lock
