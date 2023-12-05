@@ -24,3 +24,11 @@
 | Read count | Read size | File count |
 | ----------- | ----------- | ----------- |
 | 6 | 10_000 | 50_000 |
+
+#### Performance plotting
+
+![performance_plot](https://github.com/taniabogatsch/snippets/assets/44262898/4db69186-4d09-45ff-b419-374657d78ecb)
+
+#### Profiler 
+
+<img width="482" alt="profile_close_and_no_lock" src="https://github.com/taniabogatsch/snippets/assets/44262898/4247b0c7-bb26-4cc7-aae6-13235ae18a6a">
