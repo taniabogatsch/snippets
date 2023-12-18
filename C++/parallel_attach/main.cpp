@@ -13,11 +13,12 @@ static constexpr size_t READ_SIZE = 10000;
 static constexpr size_t FILE_COUNT = 50000;
 static constexpr size_t RUNS = 5;
 
-const string DB_DIR = "my_path/" + to_string(FILE_COUNT);
+const string DB_DIR = "/Users/tania/DuckDB/files/databases/" + to_string(FILE_COUNT);
 
 int file_descriptors[FILE_COUNT];
 bool KEEP_OPEN = false;
-bool LOCK_FILES = true;
+bool LOCK_FILES = false;
+bool USE_FIFO = false;
 size_t THREAD_COUNT = 0;
 
 struct File {
@@ -62,7 +63,13 @@ static void FileWorker(const size_t start, const size_t end) {
         CheckError(!S_ISREG(status.st_mode), "not a regular file");
 
         // open file
-        file_descriptors[file_id] = open(file.filepath.c_str(), O_RDWR, 0666);
+        if (USE_FIFO) {
+            mkfifo(file.filepath.c_str(), 777);
+            file_descriptors[file_id] = open(file.filepath.c_str(), O_RDONLY|O_NONBLOCK);
+        } else {
+//            file_descriptors[file_id] = open(file.filepath.c_str(), O_RDWR, 0666);
+            file_descriptors[file_id] = open(file.filepath.c_str(), O_RDONLY|O_NONBLOCK, 0666);
+        }
         CheckError(file_descriptors[file_id] == -1, "error opening file: " + string(strerror(errno)));
 
         // lock file
@@ -139,26 +146,33 @@ int main() {
     cout << "keep open: " << KEEP_OPEN << "\n";
     cout << "lock files: " << LOCK_FILES << "\n\n";
 
-    vector<size_t> thread_counts = {1, 2, 4, 8};
-    for (const auto &thread_count : thread_counts) {
+    vector<size_t> thread_counts = {2, 4, 8};
+    vector<bool> use_fifo_bools = {false, true};
+    for (const auto &use_fifo : use_fifo_bools) {
 
-        THREAD_COUNT = thread_count;
+        USE_FIFO = use_fifo;
+        cout << "use fifo: " << USE_FIFO << "\n";
 
-        // cold run
-        ReadFiles();
+        for (const auto &thread_count : thread_counts) {
 
-        vector<size_t> timings;
-        for (size_t i = 0; i < RUNS; i++) {
+            THREAD_COUNT = thread_count;
 
-            auto t1 = chrono::high_resolution_clock::now();
+            // cold run
             ReadFiles();
-            auto t2 = chrono::high_resolution_clock::now();
 
-            auto ms_int = chrono::duration_cast<chrono::milliseconds>(t2 - t1);
-            timings.push_back(ms_int.count());
+            vector<size_t> timings;
+            for (size_t i = 0; i < RUNS; i++) {
+
+                auto t1 = chrono::high_resolution_clock::now();
+                ReadFiles();
+                auto t2 = chrono::high_resolution_clock::now();
+
+                auto ms_int = chrono::duration_cast<chrono::milliseconds>(t2 - t1);
+                timings.push_back(ms_int.count());
+            }
+
+            cout << "threads: " << thread_count << " [ms]: " << GetMedian(timings) << "\n";
         }
-
-        cout << "threads: " << thread_count << " [ms]: " << GetMedian(timings) << "\n";
     }
 
     cout << "\n" << "finish reading files \n";

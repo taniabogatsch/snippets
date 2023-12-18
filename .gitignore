@@ -2,6 +2,6 @@
 Go/awesome/.idea
 C++/parallel_attach/cmake-build-debug
 C++/parallel_attach/.idea
-
+*.idea*
 
 
